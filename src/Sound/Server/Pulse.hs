@@ -2,15 +2,19 @@ module Sound.Server.Pulse
     ( record, play
     , sourceSimpleFromDevice
     , sinkSimple
+    , encodeBytes
     ) where
 
 import qualified Sound.Pulse.Simple as P
 import Data.ByteString (ByteString)
 import qualified Data.Conduit as C
+import qualified Data.Conduit.Combinators as Comb
 import Data.Conduit.Audio (AudioSource(..), Channels)
 import Data.Serialize.Put (runPut)
-import Data.Serialize.IEEE754 (putFloat32le)
-import Data.Vector.Storable (Vector(..), singleton, toList)
+import Data.Serialize.Get (runGet)
+import Data.Serialize.IEEE754 (putFloat32le, getFloat32le)
+import Data.Vector.Storable (Vector(..), singleton, fromList, toList)
+import Control.Applicative (many)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Fix (fix)
 import Control.Monad.Trans.Resource (MonadResource)
@@ -41,8 +45,11 @@ sourceSimple simple = loop where
     C.yield $ singleton $ head samples
     loop
 
-encodeToBytes :: [Float] -> ByteString
-encodeToBytes = runPut . mapM_ putFloat32le
+encodeBytes :: (MonadResource m) => C.ConduitM (Vector Float) ByteString m ()
+encodeBytes = Comb.map encodeToBytes
+
+encodeToBytes :: Vector Float -> ByteString
+encodeToBytes = runPut . mapM_ putFloat32le . toList
 
 play :: [Float] -> IO ()
 play d = do
@@ -55,7 +62,7 @@ play d = do
 sinkSimple :: (MonadResource m) => AudioSource m Float -> m ()
 sinkSimple (AudioSource s r c _) = (C.$$) s $
   C.bracketP
-    (P.simpleNew Nothing "audio-server" P.Play Nothing "Stream audio to hosts across your LAN"
+    (P.simpleNew Nothing "audio-server-client" P.Play Nothing "Stream audio to hosts across your LAN"
         (P.SampleSpec (P.F32 P.LittleEndian) (truncate r) c) Nothing Nothing)
     P.simpleFree
     sinkSimpleHandle
@@ -75,3 +82,15 @@ sinkSimpleHandle simple = C.awaitForever $ liftIO . write where
   write sample = do
     P.simpleWrite simple $ toList sample
     P.simpleDrain simple
+
+decodeBytes :: (MonadResource m) => C.ConduitM ByteString (Vector Float) m ()
+decodeBytes = Comb.map decodeToVector
+
+decodeToVector :: ByteString -> Vector Float
+decodeToVector sample = fromList sampleList where
+  sampleList = case bytesToFloats sample of
+    Left x -> [0.0 :: Float]
+    Right x -> x
+
+bytesToFloats :: ByteString -> Either String [Float]
+bytesToFloats = runGet $ many getFloat32le

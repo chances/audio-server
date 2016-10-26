@@ -1,4 +1,5 @@
 {-# LANGUAGE ExtendedDefaultRules #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
@@ -6,13 +7,14 @@ module Main where
 -- import System.Exit (exitFailure)
 -- import System.IO (hPutStrLn, stderr)
 import Control.Concurrent (threadDelay)
-import Data.Conduit (runConduit)
-import qualified Data.Conduit.Combinators as Comb
+import Control.Monad.Trans.Resource (runResourceT)
+import Data.Conduit ((.|), runConduit)
 import qualified Data.Conduit.Audio as Audio
 import Data.Conduit.Network (runTCPServer, serverSettings, appSource, appSink)
 import Data.Maybe (fromJust)
+import Data.Vector.Storable (toList)
 
-import Sound.Server.Pulse (sourceSimpleFromDevice)
+import Sound.Server.Pulse (sourceSimpleFromDevice, encodeBytes)
 import Sound.Server.Devices (promptForDevice)
 
 -- main :: IO ()
@@ -28,14 +30,11 @@ main = do
   putStr "Using device: "
   putStrLn (fromJust device)
 
-  putStrLn "Recording for 8 seconds..."
-  sample <- record device 8
-  putStrLn "Done"
+  putStrLn "Starting server on 127.0.0.1:4000"
 
-  putStr "Length of sample: "
-  print (length sample)
-
-  threadDelay 1500000
-
-  putStrLn "Playing back sample"
-  play sample
+  runTCPServer (serverSettings 4000 "127.0.0.1") $ \appData -> do
+    audioSource <- sourceSimpleFromDevice device
+    runResourceT $ runConduit
+      $ Audio.source audioSource
+     .| encodeBytes
+     .| appSink appData

@@ -8,7 +8,7 @@ module Main where
 -- import System.IO (hPutStrLn, stderr)
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans.Resource (runResourceT)
-import Data.Conduit ((.|), runConduit)
+import Data.Conduit ((.|), runConduitRes)
 import qualified Data.Conduit.Audio as Audio
 import Data.Conduit.Network (runTCPServer, serverSettings, appSource, appSink)
 import Data.Maybe (fromJust)
@@ -34,7 +34,7 @@ main = do
 
   runTCPServer (serverSettings 4000 "127.0.0.1") $ \appData -> do
     audioSource <- sourceSimpleFromDevice device
-    runResourceT $ runConduit
+    runConduitRes
       $ Audio.source audioSource
      .| encodeBytes
      .| appSink appData

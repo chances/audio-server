@@ -3,6 +3,7 @@ module Sound.Server.Pulse
     , sourceSimpleFromDevice
     , sinkSimple
     , encodeBytes
+    , decodeBytes
     ) where
 
 import qualified Sound.Pulse.Simple as P
@@ -14,6 +15,7 @@ import Data.Serialize.Put (runPut)
 import Data.Serialize.Get (runGet)
 import Data.Serialize.IEEE754 (putFloat32le, getFloat32le)
 import Data.Vector.Storable (Vector(..), singleton, fromList, toList)
+import Data.Void (Void(..))
 import Control.Applicative (many)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Fix (fix)
@@ -41,8 +43,8 @@ sourceSimpleFromDevice device = do
 sourceSimple :: (MonadResource m) => P.Simple -> C.Source m (Vector Float)
 sourceSimple simple = loop where
   loop = do
-    samples <- liftIO $ P.simpleRead simple 1
-    C.yield $ singleton $ head samples
+    samples <- liftIO $ P.simpleRead simple 32
+    C.yield $ fromList samples
     loop
 
 encodeBytes :: (MonadResource m) => C.ConduitM (Vector Float) ByteString m ()
@@ -59,11 +61,13 @@ play d = do
     P.simpleDrain s
     P.simpleFree s
 
-sinkSimple :: (MonadResource m) => AudioSource m Float -> m ()
-sinkSimple (AudioSource s r c _) = (C.$$) s $
-  C.bracketP
+sinkSimple :: (MonadResource m) => C.ConduitM (Vector Float) Void m ()
+sinkSimple =
+  let r = 44100 :: Int
+      c = 2
+  in C.bracketP
     (P.simpleNew Nothing "audio-server-client" P.Play Nothing "Stream audio to hosts across your LAN"
-        (P.SampleSpec (P.F32 P.LittleEndian) (truncate r) c) Nothing Nothing)
+        (P.SampleSpec (P.F32 P.LittleEndian) r c) Nothing Nothing)
     P.simpleFree
     sinkSimpleHandle
 
